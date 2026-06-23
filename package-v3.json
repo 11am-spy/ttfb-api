@@ -8,6 +8,6 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "yt-dlp-wrap": "^2.3.12"
+    "youtube-dl-exec": "^3.0.12"
   }
 }

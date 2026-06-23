@@ -1,36 +1,23 @@
-const express    = require("express");
-const cors       = require("cors");
-const YTDlpWrap  = require("yt-dlp-wrap").default;
+const express = require("express");
+const cors    = require("cors");
+const youtubeDl = require("youtube-dl-exec");
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// Izinkan semua origin
 app.use(cors());
 app.use(express.json());
 
-const ytDlp = new YTDlpWrap();
-
-async function ensureYtDlp() {
-  try {
-    await ytDlp.getVersion();
-  } catch {
-    console.log("Downloading yt-dlp binary...");
-    await YTDlpWrap.downloadFromGithub();
-    console.log("yt-dlp ready!");
-  }
-}
-
 async function getVideoUrl(videoUrl) {
-  const output = await ytDlp.execPromise([
-    videoUrl,
-    "--get-url",
-    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-    "--no-playlist",
-    "--no-warnings",
-  ]);
+  const result = await youtubeDl(videoUrl, {
+    getUrl: true,
+    format: "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+    noPlaylist: true,
+    noWarnings: true,
+  });
 
-  const url = output.trim().split("\n").filter(Boolean)[0];
+  // result bisa string atau array
+  const url = Array.isArray(result) ? result[0] : result.toString().trim().split("\n")[0];
   if (!url?.startsWith("http")) throw new Error("Tidak dapat link video.");
   return url;
 }
@@ -44,7 +31,6 @@ app.post("/api/download", async (req, res) => {
   const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ success: false, message: "URL kosong." });
   if (!isTikTok(url)) return res.status(400).json({ success: false, message: "Bukan link TikTok." });
-
   try {
     const downloadUrl = await getVideoUrl(url);
     res.json({ success: true, downloadUrl });
@@ -58,7 +44,6 @@ app.post("/api/facebook", async (req, res) => {
   const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ success: false, message: "URL kosong." });
   if (!isFacebook(url)) return res.status(400).json({ success: false, message: "Bukan link Facebook." });
-
   try {
     const downloadUrl = await getVideoUrl(url);
     res.json({ success: true, downloadUrl });
@@ -68,7 +53,6 @@ app.post("/api/facebook", async (req, res) => {
   }
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`✅ Server jalan di port ${PORT}`);
-  await ensureYtDlp();
 });

@@ -1,23 +1,20 @@
-const express  = require("express");
-const cors     = require("cors");
-const { execFile } = require("child_process");
-const path     = require("path");
-const fs       = require("fs");
+const express    = require("express");
+const cors       = require("cors");
+const YTDlpWrap  = require("yt-dlp-wrap").default;
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// ── CORS: izinkan domain Vercel kamu ─────────────────────────────────────────
-// Ganti dengan URL Vercel kamu setelah deploy frontend
+// ── CORS ─────────────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = [
-  /\.vercel\.app$/,          // semua subdomain vercel (termasuk preview)
-  /^http:\/\/localhost/,     // local dev
+  /\.vercel\.app$/,
+  /^http:\/\/localhost/,
   /^http:\/\/127\.0\.0\.1/,
 ];
 
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // curl / Postman
+    if (!origin) return cb(null, true);
     if (ALLOWED_ORIGINS.some(r => r.test(origin))) return cb(null, true);
     cb(new Error("CORS: origin tidak diizinkan → " + origin));
   },
@@ -25,34 +22,32 @@ app.use(cors({
 
 app.use(express.json());
 
-// ── Cari yt-dlp binary ───────────────────────────────────────────────────────
-function ytdlpBin() {
-  if (process.env.YTDLP_PATH) return process.env.YTDLP_PATH;
-  const local = path.join(__dirname, "bin", "yt-dlp");
-  return fs.existsSync(local) ? local : "yt-dlp";
+// ── Init yt-dlp-wrap (download binary otomatis saat pertama jalan) ────────────
+const ytDlp = new YTDlpWrap();
+
+async function ensureYtDlp() {
+  try {
+    await ytDlp.getVersion();
+  } catch {
+    console.log("Downloading yt-dlp binary...");
+    await YTDlpWrap.downloadFromGithub();
+    console.log("yt-dlp ready!");
+  }
 }
 
-// ── Ambil direct URL video via yt-dlp ────────────────────────────────────────
-function getVideoUrl(videoUrl) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      "--get-url",
-      "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-      "--no-playlist",
-      "--no-warnings",
-      videoUrl,
-    ];
+// ── Ambil direct URL video ────────────────────────────────────────────────────
+async function getVideoUrl(videoUrl) {
+  const output = await ytDlp.execPromise([
+    videoUrl,
+    "--get-url",
+    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+    "--no-playlist",
+    "--no-warnings",
+  ]);
 
-    execFile(ytdlpBin(), args, { timeout: 30_000 }, (err, stdout, stderr) => {
-      if (err) {
-        console.error("[yt-dlp]", stderr || err.message);
-        return reject(new Error("Gagal memproses video. Pastikan link benar & video publik."));
-      }
-      const url = stdout.trim().split("\n").filter(Boolean)[0];
-      if (!url?.startsWith("http")) return reject(new Error("Tidak dapat link video."));
-      resolve(url);
-    });
-  });
+  const url = output.trim().split("\n").filter(Boolean)[0];
+  if (!url?.startsWith("http")) throw new Error("Tidak dapat link video.");
+  return url;
 }
 
 // ── Validasi ─────────────────────────────────────────────────────────────────
@@ -72,6 +67,7 @@ app.post("/api/download", async (req, res) => {
     const downloadUrl = await getVideoUrl(url);
     res.json({ success: true, downloadUrl });
   } catch (err) {
+    console.error("[TikTok]", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -86,11 +82,13 @@ app.post("/api/facebook", async (req, res) => {
     const downloadUrl = await getVideoUrl(url);
     res.json({ success: true, downloadUrl });
   } catch (err) {
+    console.error("[Facebook]", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-app.listen(PORT, () => {
+// ── Start ─────────────────────────────────────────────────────────────────────
+app.listen(PORT, async () => {
   console.log(`✅ Server jalan di port ${PORT}`);
-  console.log(`   yt-dlp: ${ytdlpBin()}`);
+  await ensureYtDlp();
 });

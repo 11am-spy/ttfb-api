@@ -1,6 +1,7 @@
 const express = require("express");
 const cors    = require("cors");
 const https   = require("https");
+const http    = require("http");
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -8,10 +9,11 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// ── Helper: fetch dengan promise ──────────────────────────────────────────────
-function fetchJson(url, options = {}) {
+// ── Helper fetch ──────────────────────────────────────────────────────────────
+function fetchJson(urlStr, options = {}) {
   return new Promise((resolve, reject) => {
-    const req = https.request(url, options, (res) => {
+    const lib = urlStr.startsWith("https") ? https : http;
+    const req = lib.request(urlStr, options, (res) => {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
@@ -25,7 +27,7 @@ function fetchJson(url, options = {}) {
   });
 }
 
-// ── Ambil video TikTok via tikwm.com (gratis, tanpa API key) ─────────────────
+// ── TikTok via tikwm.com ──────────────────────────────────────────────────────
 async function getTikTokUrl(videoUrl) {
   const postData = `url=${encodeURIComponent(videoUrl)}&hd=1`;
   const result = await fetchJson("https://www.tikwm.com/api/", {
@@ -38,28 +40,41 @@ async function getTikTokUrl(videoUrl) {
   });
 
   if (result.body?.code !== 0) throw new Error("Gagal ambil video TikTok.");
-  
-  // Prioritas: play tanpa watermark
   const data = result.body.data;
-  const url = data?.play || data?.wmplay || data?.downloads;
-  if (!url) throw new Error("Link video tidak ditemukan.");
+  const url = data?.play || data?.wmplay;
+  if (!url) throw new Error("Link video TikTok tidak ditemukan.");
   return url;
 }
 
-// ── Ambil video Facebook via getvideolink (gratis) ───────────────────────────
+// ── Facebook via SaveFrom API ─────────────────────────────────────────────────
 async function getFacebookUrl(videoUrl) {
-  const apiUrl = `https://getvideolink.com/api/facebook?url=${encodeURIComponent(videoUrl)}`;
-  const result = await fetchJson(apiUrl, { method: "GET" });
+  const postData = `url=${encodeURIComponent(videoUrl)}`;
+  const result = await fetchJson("https://savefrom.net/api/convert", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Content-Length": Buffer.byteLength(postData),
+      "User-Agent": "Mozilla/5.0",
+    },
+    body: postData,
+  });
 
-  if (!result.body?.url) throw new Error("Gagal ambil video Facebook.");
-  return result.body.url;
+  // Coba ambil URL HD atau SD
+  const links = result.body?.url;
+  if (!links || !Array.isArray(links) || links.length === 0) {
+    throw new Error("Gagal ambil video Facebook. Pastikan video publik.");
+  }
+
+  const best = links.find(l => l.ext === "mp4") || links[0];
+  if (!best?.url) throw new Error("Link video Facebook tidak ditemukan.");
+  return best.url;
 }
 
-// ── Validasi ─────────────────────────────────────────────────────────────────
+// ── Validasi ──────────────────────────────────────────────────────────────────
 const isTikTok   = url => /tiktok\.com|vm\.tiktok\.com/i.test(url);
 const isFacebook = url => /facebook\.com|fb\.watch|fb\.com/i.test(url);
 
-// ── Routes ───────────────────────────────────────────────────────────────────
+// ── Routes ────────────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ status: "ok", message: "API aktif 🚀" }));
 
 app.post("/api/download", async (req, res) => {

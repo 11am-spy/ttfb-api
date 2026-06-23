@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: toktokder-api
+    env: node
+    buildCommand: bash install-ytdlp.sh
+    startCommand: npm start
+    plan: free

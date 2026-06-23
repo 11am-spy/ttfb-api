@@ -5,24 +5,10 @@ const YTDlpWrap  = require("yt-dlp-wrap").default;
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// ── CORS ─────────────────────────────────────────────────────────────────────
-const ALLOWED_ORIGINS = [
-  /\.vercel\.app$/,
-  /^http:\/\/localhost/,
-  /^http:\/\/127\.0\.0\.1/,
-];
-
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
-    if (ALLOWED_ORIGINS.some(r => r.test(origin))) return cb(null, true);
-    cb(new Error("CORS: origin tidak diizinkan → " + origin));
-  },
-}));
-
+// Izinkan semua origin
+app.use(cors());
 app.use(express.json());
 
-// ── Init yt-dlp-wrap (download binary otomatis saat pertama jalan) ────────────
 const ytDlp = new YTDlpWrap();
 
 async function ensureYtDlp() {
@@ -35,7 +21,6 @@ async function ensureYtDlp() {
   }
 }
 
-// ── Ambil direct URL video ────────────────────────────────────────────────────
 async function getVideoUrl(videoUrl) {
   const output = await ytDlp.execPromise([
     videoUrl,
@@ -50,14 +35,11 @@ async function getVideoUrl(videoUrl) {
   return url;
 }
 
-// ── Validasi ─────────────────────────────────────────────────────────────────
 const isTikTok   = url => /tiktok\.com|vm\.tiktok\.com/i.test(url);
 const isFacebook = url => /facebook\.com|fb\.watch|fb\.com/i.test(url);
 
-// ── Health check ─────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ status: "ok", message: "API aktif 🚀" }));
 
-// ── TikTok ───────────────────────────────────────────────────────────────────
 app.post("/api/download", async (req, res) => {
   const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ success: false, message: "URL kosong." });
@@ -72,7 +54,6 @@ app.post("/api/download", async (req, res) => {
   }
 });
 
-// ── Facebook ─────────────────────────────────────────────────────────────────
 app.post("/api/facebook", async (req, res) => {
   const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ success: false, message: "URL kosong." });
@@ -87,7 +68,6 @@ app.post("/api/facebook", async (req, res) => {
   }
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`✅ Server jalan di port ${PORT}`);
   await ensureYtDlp();
